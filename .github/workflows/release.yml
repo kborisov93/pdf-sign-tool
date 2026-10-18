@@ -1,0 +1,67 @@
+name: Release
+
+# A tag v<version> builds the installer and the portable app and publishes them as a GitHub Release.
+# Running the workflow by hand (Actions -> Release -> Run workflow) builds the same files without releasing them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Runs Gradle, and is also the Temurin 25 toolchain that jpackage takes the bundled runtime from.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Install WiX
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet tool install --global wix --version 5.0.2
+          $wix = "$env:USERPROFILE\.dotnet\tools\wix.exe"
+          & $wix extension add -g WixToolset.Util.wixext/5.0.2
+          & $wix extension add -g WixToolset.UI.wixext/5.0.2
+
+      - name: Check version
+        run: |
+          $match = .\gradlew.bat -q properties --property version | Select-String '^version:\s*(\S+)'
+          if (-not $match) { throw "Could not read the version from Gradle" }
+          $version = $match.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match version $version in build.gradle.kts"
+          }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Build
+        run: .\gradlew.bat test jpackageInstaller
+
+      # GitHub replaces spaces in release file names with dots, so name the files without spaces.
+      - name: Collect files
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item "build\jpackage\installer\PDF Sign Tool-$env:VERSION.msi" "dist\PDF-Sign-Tool-$env:VERSION.msi"
+          Compress-Archive "build\jpackage\image\PDF Sign Tool" "dist\PDF-Sign-Tool-$env:VERSION-portable.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PDF-Sign-Tool-${{ env.VERSION }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist).FullName --verify-tag --generate-notes --title "PDF Sign Tool $env:VERSION"

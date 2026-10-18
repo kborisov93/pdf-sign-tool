@@ -39,6 +39,14 @@ The installer adds a Start menu entry and (optionally) a desktop shortcut. Upgra
 `windowsUpgradeUuid` in `build.gradle.kts` stays the same; raise `version` for every release. The bundled runtime only
 contains the modules listed in `runtimeModules`. If a new dependency needs another JDK module, add it there.
 
+### Releases
+
+The GitHub repository mirrors GitLab and builds the release files with GitHub Actions
+(`.github/workflows/release.yml`). Raise `version` in `build.gradle.kts` and push a matching tag, e.g. `v1.2.0`: the
+workflow runs the tests and attaches `PDF-Sign-Tool-1.2.0.msi` and `PDF-Sign-Tool-1.2.0-portable.zip` (the app folder
+from `jpackageImage`) to a GitHub Release. It stops if the tag and `version` differ. Running the workflow by hand
+(Actions → Release → Run workflow) builds the same files as a workflow artifact without releasing them.
+
 ## Using it from a web application
 
 The API listens on `http://127.0.0.1:18765` only (the port can be changed in Settings). Browsers allow pages served
