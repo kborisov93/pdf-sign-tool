@@ -1,27 +1,29 @@
 package org.example.pdfsign.ui
 
+import com.formdev.flatlaf.FlatClientProperties
+import com.formdev.flatlaf.util.SystemFileChooser
+import com.formdev.flatlaf.util.UIScale
 import org.example.pdfsign.AppInfo
 import org.example.pdfsign.settings.Settings
 import org.example.pdfsign.settings.SettingsStore
 import org.example.pdfsign.settings.WindowsStartup
 import java.awt.BorderLayout
-import java.awt.FlowLayout
 import java.awt.Frame
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.KeyEvent
+import java.io.File
 import java.net.URI
 import java.nio.file.Files
 import java.text.ParseException
-import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JDialog
-import javax.swing.JFileChooser
 import javax.swing.JLabel
-import javax.swing.JOptionPane
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JSpinner
@@ -29,7 +31,6 @@ import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
-import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.io.path.Path
 
 class SettingsDialog private constructor(private val store: SettingsStore) :
@@ -43,53 +44,55 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
     private val timestampField = JTextField(settings.timestampUrl, 40)
     private val pkcs11Field = JTextField(settings.pkcs11Library, 32)
     private val startupBox = JCheckBox("Start ${AppInfo.NAME} when I sign in to Windows")
+    private val error = Notice(boxed = false)
+
+    private class Field(val label: String, val component: JComponent, val hint: String)
 
     init {
         iconImages = AppIcon.windowImages
         defaultCloseOperation = DISPOSE_ON_CLOSE
 
-        val form = JPanel(GridBagLayout())
-        var row = 0
-        fun addField(label: String, field: JComponent, hint: String?) {
-            form.add(JLabel(label), GridBagConstraints().apply {
-                gridx = 0; gridy = row; anchor = GridBagConstraints.FIRST_LINE_START; insets = Insets(6, 0, 0, 12)
-            })
-            form.add(field, GridBagConstraints().apply {
-                gridx = 1; gridy = row; fill = GridBagConstraints.HORIZONTAL; weightx = 1.0; insets = Insets(4, 0, 0, 0)
-            })
-            row++
-            if (hint != null) {
-                form.add(hintLabel(hint), GridBagConstraints().apply {
-                    gridx = 1; gridy = row; anchor = GridBagConstraints.LINE_START; insets = Insets(2, 0, 4, 0)
-                })
-                row++
-            }
-        }
-
-        addField("API port:", JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { add(portSpinner) },
-            "The API listens on http://127.0.0.1:<port> only.")
-        addField("Allowed websites:", JScrollPane(originsArea),
-            "One origin per line, e.g. https://portal.example.com. * allows every website; https://*.example.com its subdomains.")
-        addField("Timestamp server:", timestampField,
-            "Optional RFC 3161 TSA URL, e.g. http://timestamp.digicert.com. Leave empty for no timestamp.")
+        timestampField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "No timestamp")
+        pkcs11Field.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Not used")
         val browse = JButton("Browse…").apply { addActionListener { choosePkcs11Library() } }
-        addField("PKCS#11 library:", JPanel(BorderLayout(6, 0)).apply {
-            add(pkcs11Field, BorderLayout.CENTER)
-            add(browse, BorderLayout.EAST)
-        }, "Optional: only for smart cards that do not appear in the Windows certificate store.")
-        if (WindowsStartup.isSupported) {
-            startupBox.isSelected = WindowsStartup.isEnabled()
-            form.add(startupBox, GridBagConstraints().apply {
-                gridx = 1; gridy = row; anchor = GridBagConstraints.LINE_START; insets = Insets(8, 0, 0, 0)
-            })
+
+        val sections = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = padding(18, 20, 18, 20)
+            addSection(
+                "Web applications",
+                Field(
+                    "Allowed websites", JScrollPane(originsArea),
+                    "One origin per line, e.g. https://portal.example.com. * allows every website; https://*.example.com its subdomains.",
+                ),
+                Field("API port", flowRow(portSpinner), "The API listens on http://127.0.0.1:<port> only."),
+            )
+            add(Box.createVerticalStrut(UIScale.scale(18)))
+            addSection(
+                "Signing",
+                Field("Timestamp server", timestampField, "Optional RFC 3161 TSA URL, e.g. http://timestamp.digicert.com."),
+                Field(
+                    "PKCS#11 library",
+                    JPanel(BorderLayout(UIScale.scale(8), 0)).apply {
+                        isOpaque = false
+                        add(pkcs11Field, BorderLayout.CENTER)
+                        add(browse, BorderLayout.EAST)
+                    },
+                    "Optional: only for smart cards that do not appear in the Windows certificate store.",
+                ),
+            )
+            if (WindowsStartup.isSupported) {
+                startupBox.isSelected = WindowsStartup.isEnabled()
+                add(Box.createVerticalStrut(UIScale.scale(18)))
+                add(startupBox.apply { alignmentX = LEFT_ALIGNMENT })
+            }
         }
 
         val save = JButton("Save").apply { addActionListener { save() } }
         val cancel = JButton("Cancel").apply { addActionListener { dispose() } }
-        contentPane = JPanel(BorderLayout(0, 12)).apply {
-            border = BorderFactory.createEmptyBorder(14, 16, 14, 16)
-            add(form, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply { add(save); add(cancel) }, BorderLayout.SOUTH)
+        contentPane = JPanel(BorderLayout()).apply {
+            add(sections, BorderLayout.CENTER)
+            add(FooterBar(error, save, cancel), BorderLayout.SOUTH)
         }
         rootPane.defaultButton = save
         rootPane.registerKeyboardAction({ dispose() }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
@@ -97,27 +100,55 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
         setLocationRelativeTo(null)
     }
 
-    private fun choosePkcs11Library() {
-        val chooser = JFileChooser(pkcs11Field.text.ifBlank { System.getenv("WINDIR")?.let { "$it\\System32" } }).apply {
-            dialogTitle = "Choose the PKCS#11 library of your smart card"
-            fileFilter = FileNameExtensionFilter("PKCS#11 libraries (*.dll)", "dll")
+    /** A heading and a card with the labels on the left, the fields on the right and a hint below each field. */
+    private fun JPanel.addSection(title: String, vararg fields: Field) {
+        add(JLabel(title).style("font: +1 \$semibold.font").apply {
+            alignmentX = LEFT_ALIGNMENT
+            border = padding(0, 2, 8, 0)
+        })
+        val card = Card(GridBagLayout()).apply { alignmentX = LEFT_ALIGNMENT }
+        fields.forEachIndexed { index, field ->
+            val top = if (index == 0) 0 else UIScale.scale(14)
+            card.add(JLabel(field.label), GridBagConstraints().apply {
+                gridx = 0; gridy = 2 * index; anchor = GridBagConstraints.FIRST_LINE_START
+                insets = Insets(top + UIScale.scale(5), 0, 0, UIScale.scale(16))
+            })
+            card.add(field.component, GridBagConstraints().apply {
+                gridx = 1; gridy = 2 * index; fill = GridBagConstraints.HORIZONTAL; weightx = 1.0; insets = Insets(top, 0, 0, 0)
+            })
+            card.add(secondaryLabel(field.hint, smaller = true), GridBagConstraints().apply {
+                gridx = 1; gridy = 2 * index + 1; anchor = GridBagConstraints.LINE_START; insets = Insets(UIScale.scale(4), 0, 0, 0)
+            })
         }
-        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) pkcs11Field.text = chooser.selectedFile.absolutePath
+        add(card)
+    }
+
+    private fun choosePkcs11Library() {
+        val current = pkcs11Field.text.trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val folder = current?.parentFile ?: System.getenv("WINDIR")?.let { File(it, "System32") }
+        val chooser = SystemFileChooser(folder).apply {
+            dialogTitle = "Choose the PKCS#11 library of your smart card"
+            fileFilter = SystemFileChooser.FileNameExtensionFilter("PKCS#11 libraries (*.dll)", "dll")
+            if (current != null) selectedFile = current
+        }
+        if (chooser.showOpenDialog(this) == SystemFileChooser.APPROVE_OPTION) pkcs11Field.text = chooser.selectedFile.absolutePath
     }
 
     private fun save() {
+        error.clear()
+        listOf(portSpinner, timestampField, pkcs11Field).forEach { it.putClientProperty(FlatClientProperties.OUTLINE, null) }
         try {
             portSpinner.commitEdit()
         } catch (_: ParseException) {
-            return error("The port must be a number between 1024 and 65535.")
+            return fieldError(portSpinner, "The port must be a number between 1024 and 65535.")
         }
         val timestampUrl = timestampField.text.trim()
         if (timestampUrl.isNotEmpty() && !isHttpUrl(timestampUrl)) {
-            return error("The timestamp server must be an http:// or https:// URL.")
+            return fieldError(timestampField, "The timestamp server must be an http:// or https:// URL.")
         }
         val pkcs11Library = pkcs11Field.text.trim()
         if (pkcs11Library.isNotEmpty() && !Files.isRegularFile(Path(pkcs11Library))) {
-            return error("The PKCS#11 library does not exist.")
+            return fieldError(pkcs11Field, "The PKCS#11 library does not exist.")
         }
 
         store.update(
@@ -136,7 +167,12 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
 
     private fun isHttpUrl(text: String) = runCatching { URI(text).scheme?.lowercase() in setOf("http", "https") }.getOrDefault(false)
 
-    private fun error(message: String) = JOptionPane.showMessageDialog(this, message, title, JOptionPane.ERROR_MESSAGE)
+    /** Marks the field red and explains the problem next to the buttons. */
+    private fun fieldError(field: JComponent, message: String) {
+        field.putClientProperty(FlatClientProperties.OUTLINE, FlatClientProperties.OUTLINE_ERROR)
+        field.requestFocusInWindow()
+        error.show(message, Notice.Kind.ERROR)
+    }
 
     companion object {
         private var open: SettingsDialog? = null

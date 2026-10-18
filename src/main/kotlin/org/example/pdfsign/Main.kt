@@ -1,5 +1,6 @@
 package org.example.pdfsign
 
+import org.example.pdfsign.ui.Theme
 import org.slf4j.LoggerFactory
 import java.awt.GraphicsEnvironment
 import java.awt.SystemTray
@@ -12,6 +13,7 @@ fun main() {
     Thread.setDefaultUncaughtExceptionHandler { thread, e -> log.error("Uncaught exception in thread {}", thread.name, e) }
     log.info("Starting {} {} on Java {}", AppInfo.NAME, AppInfo.version, Runtime.version())
 
+    if (!GraphicsEnvironment.isHeadless()) Theme.install()
     if (GraphicsEnvironment.isHeadless() || !SystemTray.isSupported()) {
         log.error("The system tray is not available")
         if (!GraphicsEnvironment.isHeadless()) {

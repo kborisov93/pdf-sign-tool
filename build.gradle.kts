@@ -33,6 +33,8 @@ dependencies {
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
+    implementation("com.formdev:flatlaf:3.7.2")
+
     implementation("org.slf4j:slf4j-simple:2.0.19")
 
     testImplementation(kotlin("test"))
@@ -45,6 +47,8 @@ kotlin {
 
 application {
     mainClass = "org.example.pdfsign.MainKt"
+    // FlatLaf loads its native library (window decorations and file dialogs on Windows) with System.load.
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.jar {
@@ -149,7 +153,7 @@ val jpackageImage by tasks.registering(Exec::class) {
             "--add-modules", runtimeModules.joinToString(","),
             "--jlink-options", "--strip-native-commands --strip-debug --no-man-pages --no-header-files --compress=zip-6",
             "--icon", icon.get().asFile.absolutePath,
-            "--java-options", "-Xms16m -Xmx768m -XX:+UseSerialGC",
+            "--java-options", "-Xms16m -Xmx768m -XX:+UseSerialGC --enable-native-access=ALL-UNNAMED",
             "--dest", dest.get().asFile.absolutePath,
         )
     }

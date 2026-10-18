@@ -1,5 +1,6 @@
 package org.example.pdfsign.ui
 
+import com.formdev.flatlaf.util.UIScale
 import org.example.pdfsign.AppInfo
 import org.example.pdfsign.signing.CertificateEntry
 import org.example.pdfsign.signing.CertificateSource
@@ -11,29 +12,33 @@ import org.example.pdfsign.signing.SigningPrompt
 import org.example.pdfsign.signing.Validity
 import org.example.pdfsign.signing.userMessage
 import java.awt.BorderLayout
-import java.awt.Color
+import java.awt.CardLayout
 import java.awt.Component
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.awt.GridLayout
 import java.awt.Insets
+import java.awt.RenderingHints
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import java.awt.geom.RoundRectangle2D
 import java.nio.file.Files
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.LinkedBlockingQueue
+import javax.swing.AbstractListModel
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.DefaultListCellRenderer
-import javax.swing.ImageIcon
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
@@ -43,16 +48,14 @@ import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.JPasswordField
-import javax.swing.JProgressBar
 import javax.swing.JScrollPane
-import javax.swing.JTable
 import javax.swing.KeyStroke
+import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
+import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.SwingWorker
 import javax.swing.Timer
-import javax.swing.table.AbstractTableModel
-import javax.swing.table.DefaultTableCellRenderer
 
 /**
  * Asks the user to approve a signing request and choose a certificate. It stays open while signing, so that the
@@ -77,12 +80,16 @@ class SignRequestWindow(
     private val showAllBox = JCheckBox("Show all certificates")
     private val pinField = JPasswordField(12)
     private val unlockButton = JButton("Unlock")
-    private val pinRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
-    private val certificates = CertificateTableModel()
-    private val table = JTable(certificates)
-    private val certificateHint = plainLabel(" ")
-    private val message = plainLabel(" ")
-    private val progress = JProgressBar()
+    private val pinRow = flowRow(JLabel("PIN"), pinField, unlockButton)
+    private val certificates = CertificateListModel()
+    private val certificateList = object : JList<CertificateEntry>(certificates) {
+        // Cells shrink with the window instead of scrolling sideways.
+        override fun getScrollableTracksViewportWidth() = true
+    }
+    private val listCards = CardLayout()
+    private val listArea = Card(listCards)
+    private val placeholder = Notice(boxed = false)
+    private val message = Notice(boxed = true)
     private val signButton = JButton("Sign")
     private val rejectButton = JButton("Reject")
     private val statusWatcher = Timer(500) { onStatusTick() }
@@ -101,14 +108,18 @@ class SignRequestWindow(
             override fun windowClosing(e: WindowEvent) = reject()
         })
 
-        val body = JPanel(BorderLayout(0, 10)).apply {
-            add(documentPanel(), BorderLayout.NORTH)
+        val body = JPanel(BorderLayout(0, UIScale.scale(18))).apply {
+            add(documentCard(), BorderLayout.NORTH)
             add(certificatePanel(), BorderLayout.CENTER)
         }
-        contentPane = JPanel(BorderLayout(0, 12)).apply {
-            border = BorderFactory.createEmptyBorder(14, 16, 14, 16)
+        val content = JPanel(BorderLayout(0, UIScale.scale(18))).apply {
+            border = padding(18, 20, 18, 20)
             add(header(), BorderLayout.NORTH)
             add(body, BorderLayout.CENTER)
+            add(message, BorderLayout.SOUTH)
+        }
+        contentPane = JPanel(BorderLayout()).apply {
+            add(content, BorderLayout.CENTER)
             add(footer(), BorderLayout.SOUTH)
         }
         rootPane.defaultButton = signButton
@@ -132,7 +143,7 @@ class SignRequestWindow(
         Timer(1500) { isAlwaysOnTop = false }.apply { isRepeats = false }.start()
         statusWatcher.start()
         if (sources.isEmpty()) {
-            certificateHint.showText("No certificate source is available. Configure a PKCS#11 library in Settings.", error = true)
+            showPlaceholder("No certificate source is available. Configure a PKCS#11 library in Settings.", Notice.Kind.ERROR)
         } else {
             loadCertificates()
         }
@@ -147,8 +158,7 @@ class SignRequestWindow(
 
     override fun signingFailed(error: Throwable) = SwingUtilities.invokeLater {
         signing = false
-        progress.isVisible = false
-        message.showText("Signing failed: ${error.userMessage()} Try again, or reject the request.", error = true)
+        showMessage("Signing failed: ${error.userMessage()} Try again, or reject the request.", Notice.Kind.ERROR)
         updateControls()
         toFront()
     }
@@ -170,60 +180,88 @@ class SignRequestWindow(
     // --- Layout --------------------------------------------------------------------------------------------------
 
     private fun header(): JComponent {
-        val title = JLabel("Signature request").apply { font = font.deriveFont(Font.BOLD, font.size2D + 5f) }
-        val requester = plainLabel(request.origin ?: "A local application", bold = true)
-        val explanation = JLabel("asks you to sign the document below with your certificate.")
+        val title = JLabel("Sign this document?").styleClass("h2")
+        val requester = request.origin?.let(::originChip) ?: plainLabel("A local application", bold = true)
+        val explanation = flowRow(requester, JLabel("is requesting your signature."))
         val texts = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            listOf(title, Box.createVerticalStrut(6), requester, explanation).forEach {
+            listOf(title, Box.createVerticalStrut(UIScale.scale(8)), explanation).forEach {
                 (it as JComponent).alignmentX = LEFT_ALIGNMENT
                 add(it)
             }
         }
-        return JPanel(BorderLayout(14, 0)).apply {
-            add(JLabel(ImageIcon(AppIcon.render(48))), BorderLayout.WEST)
+        return JPanel(BorderLayout(UIScale.scale(16), 0)).apply {
+            add(JLabel(AppIcon.icon(UIScale.scale(48))), BorderLayout.WEST)
             add(texts, BorderLayout.CENTER)
         }
     }
 
-    private fun documentPanel(): JComponent {
+    /** The requesting website, set off from the text around it: it is what the user must check before signing. */
+    private fun originChip(origin: String): JComponent = object : JLabel() {
+        override fun paintComponent(g: Graphics) {
+            paintRoundedBox(g, themeColor("PdfSign.cardBackground"), themeColor("PdfSign.cardBorderColor"), arc = 8)
+            super.paintComponent(g)
+        }
+    }.apply {
+        putClientProperty("html.disable", true)
+        text = origin
+        font = font.deriveFont(Font.BOLD)
+        border = padding(3, 8, 3, 8)
+        toolTipText = "The website that sent the document"
+        if (origin.startsWith("https://", ignoreCase = true)) {
+            icon = LockIcon()
+            iconTextGap = UIScale.scale(6)
+        }
+    }
+
+    private fun documentCard(): JComponent {
         val info = request.documentInfo
         val options = request.options
-        val panel = JPanel(GridBagLayout())
-        var row = 0
-        fun addRow(label: String, value: JComponent) {
-            panel.add(JLabel(label), GridBagConstraints().apply {
-                gridx = 0; gridy = row; anchor = GridBagConstraints.LINE_START; insets = Insets(2, 0, 2, 12)
-            })
-            panel.add(value, GridBagConstraints().apply {
-                gridx = 1; gridy = row; anchor = GridBagConstraints.LINE_START; weightx = 1.0
-                fill = GridBagConstraints.HORIZONTAL; insets = Insets(2, 0, 2, 12)
-            })
-            row++
-        }
+        val pages = "${info.pageCount} page${if (info.pageCount == 1) "" else "s"}"
 
-        val openButton = JButton("Open").apply {
+        val openButton = JButton("Open document").apply {
             toolTipText = "View the document in your PDF reader before signing"
             addActionListener { openDocument() }
         }
-        addRow("File:", JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-            add(plainLabel(request.fileName.ellipsize(60), bold = true))
-            add(Box.createHorizontalStrut(10))
-            add(openButton)
-        })
-        addRow("Size:", JLabel("${formatSize(request.document.size)}, ${info.pageCount} page${if (info.pageCount == 1) "" else "s"}"))
-        val rect = info.signatureRect
-        addRow("Signature:", JLabel("page ${options.page}, ${rect.width.toInt()} × ${rect.height.toInt()} pt"))
-        options.reason?.let { addRow("Reason:", plainLabel(it.ellipsize(80))) }
-        options.location?.let { addRow("Location:", plainLabel(it.ellipsize(80))) }
-        if (info.existingSignatures > 0) {
-            addRow("Already signed:", JLabel("${info.existingSignatures} existing signature(s) will be preserved"))
+        val title = JPanel(GridLayout(2, 1, 0, UIScale.scale(2))).apply {
+            add(plainLabel(request.fileName.ellipsize(60)).style("font: +1 \$semibold.font"))
+            add(secondaryLabel("$pages · ${formatSize(request.document.size)}"))
         }
 
-        return JPanel(BorderLayout(12, 0)).apply {
-            border = titledBorder("Document")
-            add(JPanel(BorderLayout()).apply { add(panel, BorderLayout.NORTH) }, BorderLayout.CENTER)
-            add(PlacementPreview(info.page, rect), BorderLayout.EAST)
+        val details = JPanel(GridBagLayout())
+        var row = 0
+        fun addRow(label: String, value: JComponent) {
+            details.add(secondaryLabel(label), GridBagConstraints().apply {
+                gridx = 0; gridy = row; anchor = GridBagConstraints.LINE_START; insets = Insets(3, 0, 3, UIScale.scale(16))
+            })
+            details.add(value, GridBagConstraints().apply {
+                gridx = 1; gridy = row; anchor = GridBagConstraints.LINE_START; weightx = 1.0
+                fill = GridBagConstraints.HORIZONTAL; insets = Insets(3, 0, 3, 0)
+            })
+            row++
+        }
+        addRow("Signature", JLabel("Page ${options.page} of ${info.pageCount}"))
+        options.reason?.let { addRow("Reason", plainLabel(it.ellipsize(80))) }
+        options.location?.let { addRow("Location", plainLabel(it.ellipsize(80))) }
+        if (info.existingSignatures > 0) {
+            val count = info.existingSignatures
+            addRow("Signatures", JLabel("$count existing signature${if (count == 1) "" else "s"} will be preserved"))
+        }
+
+        val text = JPanel(BorderLayout(0, UIScale.scale(12))).apply {
+            add(JPanel(BorderLayout(UIScale.scale(12), 0)).apply {
+                add(title, BorderLayout.CENTER)
+                add(JPanel(BorderLayout()).apply { add(openButton, BorderLayout.NORTH) }, BorderLayout.EAST)
+            }, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply { add(details, BorderLayout.NORTH) }, BorderLayout.CENTER)
+        }
+        val rect = info.signatureRect
+        val preview = PlacementPreview(info.page, rect).apply {
+            toolTipText = "Where the signature will appear: page ${options.page}, ${rect.width.toInt()} × ${rect.height.toInt()} pt"
+        }
+        return Card(BorderLayout(UIScale.scale(18), 0)).apply {
+            add(preview, BorderLayout.WEST)
+            add(text.transparent(), BorderLayout.CENTER)
         }
     }
 
@@ -238,81 +276,86 @@ class SignRequestWindow(
         unlockButton.addActionListener { unlock() }
         pinField.addActionListener { unlock() }
         showAllBox.toolTipText = "Include device, server and self-signed certificates, which are normally not used to sign documents"
-        showAllBox.addActionListener { refreshTable() }
+        showAllBox.addActionListener { refreshList() }
 
-        val sourceRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
-            add(JLabel("Source:"))
-            add(if (sources.size > 1) sourceBox else JLabel(sources.firstOrNull()?.displayName ?: "none"))
-            add(refreshButton)
-            add(Box.createHorizontalStrut(8))
-            add(showAllBox)
-        }
-        pinRow.apply {
-            add(JLabel("PIN:"))
-            add(pinField)
-            add(unlockButton)
-            isVisible = false
-        }
-        val controls = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            sourceRow.alignmentX = LEFT_ALIGNMENT
-            pinRow.alignmentX = LEFT_ALIGNMENT
-            add(sourceRow)
-            add(Box.createVerticalStrut(6))
-            add(pinRow)
+        val heading = JPanel(BorderLayout(UIScale.scale(12), 0)).apply {
+            add(JLabel("Signing certificate").style("font: +1 \$semibold.font"), BorderLayout.WEST)
+            val source = if (sources.size > 1) sourceBox else secondaryLabel(sources.firstOrNull()?.displayName.orEmpty())
+            add(flowRow(source, refreshButton), BorderLayout.EAST)
         }
 
-        table.apply {
+        val cell = CertificateCell()
+        certificateList.apply {
             selectionModel.selectionMode = ListSelectionModel.SINGLE_SELECTION
-            fillsViewportHeight = true
-            rowHeight = maxOf(rowHeight, getFontMetrics(font).height + 6)
-            preferredScrollableViewportSize = Dimension(620, rowHeight * 5)
-            setDefaultRenderer(Any::class.java, CertificateRenderer(certificates))
-            columnModel.getColumn(0).preferredWidth = 230
-            columnModel.getColumn(1).preferredWidth = 200
-            columnModel.getColumn(2).preferredWidth = 100
-            columnModel.getColumn(3).preferredWidth = 90
+            cellRenderer = cell
+            fixedCellHeight = cell.preferredHeight()
+            isOpaque = false
             selectionModel.addListSelectionListener { updateControls() }
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
-                    if (e.clickCount == 2 && rowAtPoint(e.point) >= 0) sign()
+                    val index = locationToIndex(e.point)
+                    if (e.clickCount == 2 && index >= 0 && getCellBounds(index, index).contains(e.point)) sign()
                 }
             })
         }
+        val scrollPane = JScrollPane(certificateList).apply {
+            border = BorderFactory.createEmptyBorder() // not null, which a theme change would replace
+            isOpaque = false
+            viewport.isOpaque = false
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        }
 
-        return JPanel(BorderLayout(0, 6)).apply {
-            border = titledBorder("Signing certificate")
-            add(controls, BorderLayout.NORTH)
-            add(JScrollPane(table), BorderLayout.CENTER)
-            add(certificateHint, BorderLayout.SOUTH)
+        pinRow.isVisible = false
+        val placeholderPanel = JPanel(GridBagLayout()).apply {
+            border = padding(12, 16, 12, 16)
+            add(placeholder, GridBagConstraints().apply { gridy = 0; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL })
+            add(pinRow, GridBagConstraints().apply {
+                gridy = 1; anchor = GridBagConstraints.LINE_START; insets = Insets(UIScale.scale(10), UIScale.scale(20), 0, 0)
+            })
+        }
+
+        listArea.apply {
+            border = padding(4, 4, 4, 4)
+            add(placeholderPanel.transparent(), PLACEHOLDER_CARD)
+            add(scrollPane, LIST_CARD)
+            preferredSize = Dimension(UIScale.scale(580), certificateList.fixedCellHeight * 3 + insets.top + insets.bottom)
+        }
+
+        return JPanel(BorderLayout(0, UIScale.scale(10))).apply {
+            add(heading, BorderLayout.NORTH)
+            add(listArea, BorderLayout.CENTER)
+            add(flowRow(showAllBox), BorderLayout.SOUTH)
         }
     }
 
     private fun footer(): JComponent {
         signButton.addActionListener { sign() }
         rejectButton.addActionListener { reject() }
-        progress.isIndeterminate = true
-        progress.isVisible = false
-        progress.preferredSize = Dimension(120, progress.preferredSize.height)
-        val status = JPanel(BorderLayout(10, 0)).apply {
-            add(message, BorderLayout.CENTER)
-            add(progress, BorderLayout.EAST)
-        }
-        val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
-            add(signButton)
-            add(rejectButton)
-        }
-        return JPanel(BorderLayout(0, 10)).apply {
-            add(status, BorderLayout.NORTH)
-            add(buttons, BorderLayout.SOUTH)
-        }
+        return FooterBar(null, signButton, rejectButton)
     }
 
     // --- Behaviour -----------------------------------------------------------------------------------------------
 
     private val selectedSource: CertificateSource? get() = sourceBox.selectedItem as? CertificateSource
 
-    private val selectedEntry: CertificateEntry? get() = table.selectedRow.takeIf { it >= 0 }?.let { certificates.entries[it] }
+    private val selectedEntry: CertificateEntry? get() = certificateList.selectedValue
+
+    /** Shows [text] instead of the certificate list, with the PIN field if the token has to be unlocked first. */
+    private fun showPlaceholder(text: String, kind: Notice.Kind = Notice.Kind.INFO, pinEntry: Boolean = false) {
+        placeholder.show(text, kind)
+        pinRow.isVisible = pinEntry
+        listCards.show(listArea, PLACEHOLDER_CARD)
+    }
+
+    /** Shows [text] above the buttons. The window grows if needed, so the certificate list keeps its size. */
+    private fun showMessage(text: String, kind: Notice.Kind) {
+        message.show(text, kind)
+        // After the next layout, the message knows the height of its wrapped text.
+        SwingUtilities.invokeLater {
+            val wanted = preferredSize.height
+            if (wanted > height) setSize(width, wanted)
+        }
+    }
 
     private fun loadCertificates(pin: CharArray? = null) {
         if (signing || closed) return
@@ -322,17 +365,16 @@ class SignRequestWindow(
         keyStore = null
         allEntries = emptyList()
         certificates.entries = emptyList()
-        pinRow.isVisible = source.needsPin
         if (source.needsPin && pin == null) {
             loading = false
-            certificateHint.showText("Enter the PIN of your smart card and click Unlock.")
+            showPlaceholder("Enter the PIN of your smart card to show its certificates.", pinEntry = true)
             updateControls()
             pinField.requestFocusInWindow()
             return
         }
 
         loading = true
-        certificateHint.showText("Reading certificates…")
+        showPlaceholder("Reading certificates…", Notice.Kind.PROGRESS)
         updateControls()
         object : SwingWorker<LoadedKeyStore, Unit>() {
             override fun doInBackground(): LoadedKeyStore = source.load(pin)
@@ -345,7 +387,7 @@ class SignRequestWindow(
                     if (generation == loadGeneration) {
                         loading = false
                         val cause = (e as? ExecutionException)?.cause ?: e
-                        certificateHint.showText("Could not read certificates: ${cause.userMessage()}", error = true)
+                        showPlaceholder("Could not read certificates: ${cause.userMessage()}", Notice.Kind.ERROR, pinEntry = source.needsPin)
                         updateControls()
                     }
                     return
@@ -357,27 +399,27 @@ class SignRequestWindow(
                 loading = false
                 keyStore = result
                 allEntries = result.entries
-                refreshTable()
+                refreshList()
             }
         }.execute()
     }
 
-    private fun refreshTable() {
+    private fun refreshList() {
         val shown = if (showAllBox.isSelected) allEntries else allEntries.filter { it.isRecommended }
         certificates.entries = shown
         if (keyStore != null) {
             when {
-                shown.isNotEmpty() -> certificateHint.showText("Select the certificate to sign with.")
-                allEntries.isNotEmpty() -> certificateHint.showText(
+                shown.isNotEmpty() -> listCards.show(listArea, LIST_CARD)
+                allEntries.isNotEmpty() -> showPlaceholder(
                     "No document signing certificate found. Insert your smart card and click Refresh, or show all certificates.",
-                    error = true,
+                    Notice.Kind.ERROR,
                 )
-                selectedSource?.needsPin == true -> certificateHint.showText("The smart card holds no signing certificate.", error = true)
-                else -> certificateHint.showText("No signing certificate found. Insert your smart card and click Refresh.", error = true)
+                selectedSource?.needsPin == true -> showPlaceholder("The smart card holds no signing certificate.", Notice.Kind.ERROR)
+                else -> showPlaceholder("No signing certificate found. Insert your smart card and click Refresh.", Notice.Kind.ERROR)
             }
         }
         val firstValid = shown.indexOfFirst { it.validity == Validity.VALID }
-        if (firstValid >= 0) table.setRowSelectionInterval(firstValid, firstValid)
+        if (firstValid >= 0) certificateList.selectedIndex = firstValid
         updateControls()
     }
 
@@ -386,7 +428,7 @@ class SignRequestWindow(
         val pin = pinField.password
         pinField.text = ""
         if (pin.isEmpty()) {
-            certificateHint.showText("Enter the PIN first.", error = true)
+            showPlaceholder("Enter the PIN first.", Notice.Kind.ERROR, pinEntry = true)
             return
         }
         loadCertificates(pin)
@@ -399,12 +441,11 @@ class SignRequestWindow(
         val credential = try {
             keyStore?.credentialFor(entry) ?: return
         } catch (e: Exception) {
-            message.showText("This certificate cannot be used: ${e.userMessage()}", error = true)
+            showMessage("This certificate cannot be used: ${e.userMessage()}", Notice.Kind.ERROR)
             return
         }
         signing = true
-        progress.isVisible = true
-        message.showText("Signing… If you are asked for the PIN of your smart card, enter it to continue.")
+        showMessage("Signing… If you are asked for the PIN of your smart card, enter it to continue.", Notice.Kind.PROGRESS)
         updateControls()
         decisions.put(Decision.Approve(credential))
     }
@@ -435,7 +476,7 @@ class SignRequestWindow(
         } catch (e: Exception) {
             e.userMessage()
         }
-        if (error != null) message.showText("Cannot open the document: $error", error = true)
+        if (error != null) showMessage("Cannot open the document: $error", Notice.Kind.ERROR)
     }
 
     private fun updateControls() {
@@ -445,7 +486,7 @@ class SignRequestWindow(
         showAllBox.isEnabled = idle
         pinField.isEnabled = idle
         unlockButton.isEnabled = idle
-        table.isEnabled = !signing
+        certificateList.isEnabled = !signing
         signButton.isEnabled = idle && selectedEntry?.validity == Validity.VALID
         rejectButton.isEnabled = !signing
     }
@@ -455,50 +496,105 @@ class SignRequestWindow(
         bytes >= 1024 -> "${bytes / 1024} KB"
         else -> "$bytes bytes"
     }
+
+    private fun <T : JComponent> T.transparent(): T = apply {
+        isOpaque = false
+        components.forEach { (it as? JPanel)?.transparent() }
+    }
+
+    private companion object {
+        const val LIST_CARD = "list"
+        const val PLACEHOLDER_CARD = "placeholder"
+    }
 }
 
-private class CertificateTableModel : AbstractTableModel() {
+private class CertificateListModel : AbstractListModel<CertificateEntry>() {
     var entries: List<CertificateEntry> = emptyList()
         set(value) {
+            val removed = field.size
             field = value
-            fireTableDataChanged()
+            // Removing and adding (rather than "changed") also clears the selection, like a table data change.
+            if (removed > 0) fireIntervalRemoved(this, 0, removed - 1)
+            if (value.isNotEmpty()) fireIntervalAdded(this, 0, value.size - 1)
         }
 
-    override fun getRowCount() = entries.size
+    override fun getSize() = entries.size
 
-    override fun getColumnCount() = COLUMNS.size
+    override fun getElementAt(index: Int) = entries[index]
+}
 
-    override fun getColumnName(column: Int) = COLUMNS[column]
+/** A certificate as two lines of text with an icon and a validity badge; the selected one is highlighted. */
+private class CertificateCell : JPanel(BorderLayout(UIScale.scale(12), 0)), ListCellRenderer<CertificateEntry> {
+    private val icon = CertificateIcon()
+    private val subject = plainLabel().style("font: \$semibold.font")
+    private val issuer = plainLabel().style("font: -1")
+    private val status = Pill()
+    private var selected = false
 
-    override fun getValueAt(row: Int, column: Int): Any {
-        val entry = entries[row]
-        return when (column) {
-            0 -> entry.subjectName
-            1 -> entry.issuerName
-            2 -> DATE_FORMAT.format(entry.certificate.notAfter.toInstant())
-            else -> entry.validity.label
+    init {
+        isOpaque = false
+        border = padding(8, 12, 8, 12)
+        add(JLabel(icon), BorderLayout.WEST)
+        add(JPanel(GridLayout(2, 1, 0, UIScale.scale(2))).apply {
+            isOpaque = false
+            add(subject)
+            add(issuer)
+        }, BorderLayout.CENTER)
+        add(JPanel(GridBagLayout()).apply {
+            isOpaque = false
+            add(status)
+        }, BorderLayout.EAST)
+    }
+
+    /** The height of every cell: they all show the same lines. */
+    fun preferredHeight(): Int {
+        subject.text = "X"
+        issuer.text = "X"
+        status.text = "X"
+        return preferredSize.height
+    }
+
+    override fun getListCellRendererComponent(
+        list: JList<out CertificateEntry>, entry: CertificateEntry, index: Int, isSelected: Boolean, cellHasFocus: Boolean,
+    ): Component {
+        val usable = list.isEnabled && entry.validity == Validity.VALID
+        subject.text = entry.subjectName
+        subject.foreground = themeColor(if (usable) "Label.foreground" else "PdfSign.secondaryForeground")
+        issuer.text = "Issued by ${entry.issuerName} · valid until ${DATE_FORMAT.format(entry.certificate.notAfter.toInstant())}"
+        issuer.foreground = themeColor("PdfSign.secondaryForeground")
+        icon.muted = !usable
+        val tone = when (entry.validity) {
+            Validity.VALID -> "success"
+            Validity.EXPIRED -> "error"
+            Validity.NOT_YET_VALID -> "warning"
+        }
+        status.show(entry.validity.label, "PdfSign.${tone}Color", "PdfSign.${tone}Background")
+        toolTipText = "${entry.certificate.subjectX500Principal.name}  (serial ${entry.certificate.serialNumber.toString(16).uppercase()})"
+        selected = isSelected
+        return this
+    }
+
+    // Like a Windows 11 list: a rounded highlight with an accent bar at its left edge.
+    override fun paintComponent(g: Graphics) {
+        if (!selected) return
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val gap = UIScale.scale(2f)
+            val arc = UIScale.scale(8f)
+            g2.color = themeColor("PdfSign.selectionBackground")
+            g2.fill(RoundRectangle2D.Float(0f, gap, width.toFloat(), height - 2 * gap, arc, arc))
+            val barHeight = height * 0.4f
+            val barWidth = UIScale.scale(3f)
+            g2.color = themeColor("Component.accentColor")
+            g2.fill(RoundRectangle2D.Float(gap, (height - barHeight) / 2, barWidth, barHeight, barWidth, barWidth))
+        } finally {
+            g2.dispose()
         }
     }
 
     companion object {
-        private val COLUMNS = arrayOf("Issued to", "Issued by", "Valid until", "Status")
         // Locale-independent, so the bundled runtime can do without the large jdk.localedata module.
         private val DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault())
-    }
-}
-
-private class CertificateRenderer(private val model: CertificateTableModel) : DefaultTableCellRenderer() {
-    init {
-        putClientProperty("html.disable", true)
-    }
-
-    override fun getTableCellRendererComponent(
-        table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int,
-    ): Component {
-        super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
-        val entry = model.entries[row]
-        if (!isSelected && entry.validity != Validity.VALID) foreground = Color.GRAY
-        toolTipText = "${entry.certificate.subjectX500Principal.name}  (serial ${entry.certificate.serialNumber.toString(16).uppercase()})"
-        return this
     }
 }

@@ -8,13 +8,13 @@ import org.example.pdfsign.signing.SignRequestStore
 import org.example.pdfsign.signing.SigningCoordinator
 import org.example.pdfsign.ui.SettingsDialog
 import org.example.pdfsign.ui.SwingUserInteraction
+import org.example.pdfsign.ui.Theme
 import org.example.pdfsign.ui.TrayController
 import org.slf4j.LoggerFactory
 import java.awt.TrayIcon
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
-import javax.swing.UIManager
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
@@ -37,14 +37,12 @@ class PdfSignToolApp(private val instanceLock: SingleInstanceLock) {
         }
 
         SwingUtilities.invokeAndWait {
-            try {
-                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
-            } catch (e: Exception) {
-                log.warn("Cannot use the system look and feel", e)
-            }
             tray = TrayController(
                 port = { settingsStore.current.port },
-                onSettings = { SettingsDialog.show(settingsStore) },
+                onSettings = {
+                    Theme.followSystem()
+                    SettingsDialog.show(settingsStore)
+                },
                 onExit = ::exit,
             )
             tray.install()

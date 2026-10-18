@@ -6,7 +6,8 @@ A web page sends a PDF and the rectangle for the visible signature to a local RE
 request (requesting website, document, signature position), the user picks a certificate and enters the smart card
 PIN, and the page polls the request and downloads the signed PDF.
 
-- Kotlin, Swing, [iText 9](https://itextpdf.com/) (signing), [Ktor](https://ktor.io/) (REST API)
+- Kotlin, Swing with [FlatLaf](https://www.formdev.com/flatlaf/) (light or dark, like the Windows apps),
+  [iText 9](https://itextpdf.com/) (signing), [Ktor](https://ktor.io/) (REST API)
 - PAdES signatures (`ETSI.CAdES.detached`, SHA-256), RSA and ECDSA keys, optional RFC 3161 timestamp
 - Incremental updates: existing signatures stay valid
 - Smart cards through the Windows certificate store (minidriver) or a PKCS#11 driver

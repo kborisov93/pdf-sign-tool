@@ -24,6 +24,7 @@ class SwingUserInteraction(private val settings: () -> Settings) : UserInteracti
     }
 
     override fun openPrompt(request: SignRequest): SigningPrompt {
+        Theme.followSystem()
         lateinit var window: SignRequestWindow
         SwingUtilities.invokeAndWait {
             window = SignRequestWindow(request, CertificateSource.available(settings().pkcs11Library))

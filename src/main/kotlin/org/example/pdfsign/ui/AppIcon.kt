@@ -14,6 +14,9 @@ import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
+import javax.swing.Icon
+import javax.swing.ImageIcon
+import kotlin.math.roundToInt
 
 /** The application icon, drawn in code so the tray, the windows and the installer share one design. */
 object AppIcon {
@@ -25,6 +28,10 @@ object AppIcon {
     val windowImages: List<Image> by lazy { listOf(16, 20, 24, 32, 40, 48, 64, 128).map(::render) }
 
     fun trayImage(): Image = BaseMultiResolutionImage(*listOf(16, 20, 24, 32, 40, 48, 64).map(::render).toTypedArray())
+
+    /** An icon of [size] that stays sharp on scaled displays. */
+    fun icon(size: Int): Icon =
+        ImageIcon(BaseMultiResolutionImage(*listOf(1.0, 1.25, 1.5, 1.75, 2.0).map { render((size * it).roundToInt()) }.toTypedArray()))
 
     /** A page with a folded corner and a blue signature stroke, designed on a 64 x 64 grid. */
     fun render(size: Int): BufferedImage {
