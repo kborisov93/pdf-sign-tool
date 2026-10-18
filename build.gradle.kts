@@ -6,7 +6,7 @@ plugins {
 
 group = "org.example"
 // jpackage requires a purely numeric version (1-3 dot-separated numbers).
-version = "1.1.0"
+version = "1.2.0"
 
 val appName = "PDF Sign Tool"
 val appVendor = "PDF Sign Tool"
@@ -26,6 +26,7 @@ dependencies {
     implementation("com.itextpdf:forms:$itextVersion")
     implementation("com.itextpdf:sign:$itextVersion")
     implementation("com.itextpdf:bouncy-castle-adapter:$itextVersion")
+    implementation("com.itextpdf:svg:$itextVersion") // the company logo in the signature appearance
 
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-cio:$ktorVersion")

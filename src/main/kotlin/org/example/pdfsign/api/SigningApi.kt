@@ -42,6 +42,7 @@ import org.example.pdfsign.signing.PdfRect
 import org.example.pdfsign.signing.SignRequest
 import org.example.pdfsign.signing.SignRequestStore
 import org.example.pdfsign.signing.SignStatus
+import org.example.pdfsign.signing.SignerDetails
 import org.example.pdfsign.signing.SignatureOptions
 import org.example.pdfsign.signing.userMessage
 import org.slf4j.LoggerFactory
@@ -233,6 +234,7 @@ private fun Map<String, String>.toSignatureOptions(): SignatureOptions {
         location = text("location"),
         contactInfo = text("contactInfo"),
         fieldName = text("fieldName", maxLength = 64),
+        signerDetails = text("signerDetails")?.let { SignerDetails.parse(it) ?: invalid("'signerDetails' must be 'name' or 'dn'") },
     )
 }
 

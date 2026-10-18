@@ -1,5 +1,7 @@
 package org.example.pdfsign.signing
 
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x500.style.IETFUtils
 import org.example.pdfsign.AppInfo
 import java.security.AuthProvider
 import java.security.GeneralSecurityException
@@ -149,6 +151,21 @@ fun X509Certificate.validity(now: Date = Date()): Validity = when {
 /** True unless the key usage extension rules out digital signatures (e.g. encryption-only certificates). */
 fun X509Certificate.allowsSigning(): Boolean =
     keyUsage?.let { it.getOrElse(0) { false } || it.getOrElse(1) { false } } ?: true
+
+/**
+ * The subject the way Adobe Acrobat prints it in a signature: most specific part first, lowercase keys, e.g.
+ * "email=…, o=Key Development, 2.5.4.97=NTRBG-…, cn=…, c=BG". Attributes without a short key keep their OID.
+ */
+fun X500Principal.displayDn(): String =
+    X500Name.getInstance(encoded).rdNs.reversed().flatMap { it.typesAndValues.asList() }
+        .joinToString(", ") { "${DN_KEYS[it.type.id] ?: it.type.id}=${IETFUtils.valueToString(it.value)}" }
+
+private val DN_KEYS = mapOf(
+    "2.5.4.3" to "cn", "2.5.4.4" to "sn", "2.5.4.5" to "serialNumber", "2.5.4.6" to "c", "2.5.4.7" to "l",
+    "2.5.4.8" to "st", "2.5.4.9" to "street", "2.5.4.10" to "o", "2.5.4.11" to "ou", "2.5.4.12" to "title",
+    "2.5.4.42" to "givenName", "1.2.840.113549.1.9.1" to "email", "0.9.2342.19200300.100.1.1" to "uid",
+    "0.9.2342.19200300.100.1.25" to "dc",
+)
 
 fun X500Principal.commonName(): String = try {
     LdapName(name).rdns.lastOrNull { it.type.equals("CN", ignoreCase = true) }?.value?.toString()

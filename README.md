@@ -10,6 +10,9 @@ PIN, and the page polls the request and downloads the signed PDF.
   [iText 9](https://itextpdf.com/) (signing), [Ktor](https://ktor.io/) (REST API)
 - PAdES signatures (`ETSI.CAdES.detached`, SHA-256), RSA and ECDSA keys, optional RFC 3161 timestamp
 - Incremental updates: existing signatures stay valid
+- The visible signature shows the company logo (vector graphics from
+  `src/main/resources/org/example/pdfsign/signing/logo.svg`) next to the signer's name and the date, optionally with
+  the certificate's full DN
 - Smart cards through the Windows certificate store (minidriver) or a PKCS#11 driver
 - Windows installer built with jpackage and WiX
 
@@ -23,7 +26,7 @@ ships inside the installer.
 | `gradlew run` | Starts the tray app from the sources |
 | `gradlew test` | Runs the tests (software keys, no smart card needed) |
 | `gradlew jpackageImage` | `build/jpackage/image/PDF Sign Tool/`: a self-contained app folder that runs without installing |
-| `gradlew jpackageInstaller` | `build/jpackage/installer/PDF Sign Tool-1.1.0.msi` |
+| `gradlew jpackageInstaller` | `build/jpackage/installer/PDF Sign Tool-1.2.0.msi` |
 | `gradlew jpackageInstaller -PinstallerType=exe` | A setup `.exe` instead of the `.msi` |
 | `gradlew jpackageInstaller -PperUserInstall=true` | Installs into `%LOCALAPPDATA%`, without administrator rights |
 
@@ -62,9 +65,10 @@ async function signPdf(pdfBlob, fileName) {
   form.append("page", "1");          // 1 = first page
   form.append("x", "36");            // rectangle in PDF points (72 pt = 1 inch)
   form.append("y", "36");
-  form.append("width", "200");
-  form.append("height", "60");
+  form.append("width", "240");
+  form.append("height", "70");
   form.append("reason", "Contract approval");
+  form.append("signerDetails", "dn"); // optional: also print the certificate's DN; default: the app setting
 
   let response = await fetch(`${API}/sign-requests`, { method: "POST", body: form });
   let request = await response.json();
@@ -105,12 +109,22 @@ Open `http://127.0.0.1:18765/` (tray menu → *Open test page*) for an interacti
 | `origin` | no | `bottom-left` (default) or `top-left`, see below |
 | `reason`, `location`, `contactInfo` | no | Stored in the signature; reason and location are also shown in its appearance |
 | `fieldName` | no | Name of the new signature field (letters, digits, space, `-`, `_`). Default: `Signature1`, `Signature2`, … |
+| `signerDetails` | no | `name`: "Digitally signed by <name>" and the date. `dn`: also the certificate's full distinguished name (email, organisation, personal number, …). Default: the app setting. Other values give `400 invalid_request` |
 
 **Coordinates.** With `origin=bottom-left`, `x`/`y` are PDF user-space coordinates: origin at the bottom-left corner of
 the unrotated page, y pointing up. With `origin=top-left`, the rectangle is measured on the page *as a viewer shows
 it*: origin at the top-left corner of the visible area (crop box), y pointing down, page rotation applied. This is
 the coordinate system of a [PDF.js](https://mozilla.github.io/pdf.js/) viewport at scale 1, so a rectangle the user
 draws over a rendered page converts by dividing by the render scale.
+
+### Signature appearance
+
+The logo fills the box height at the left (at most 45% of the width). To its right: "Digitally signed by <name>", the
+DN (with `signerDetails=dn`), the date in Adobe Acrobat's style (`Date: 2026.09.13 21:30:21 +03'00'`), and reason and
+location when the request has them. The text uses Calibri (Arial if missing) in the largest size up to 12 pt that fits,
+is centred vertically, and the date line never wraps. Use landscape boxes: about 240 × 70 pt for the name only, about
+260 × 100 pt with the DN; smaller boxes get smaller text. On pages rotated by 90° or 270° the signature is laid out the
+same way, upright as the viewer shows the page.
 
 ### Request object
 
@@ -164,6 +178,7 @@ Tray icon → *Settings…* (or double-click the icon):
 | Allowed websites | `*` | One origin per line. `*` allows every site, `https://*.example.com` its subdomains. **Restrict this in production.** |
 | Timestamp server | empty | RFC 3161 TSA URL; adds a trusted signing time (PAdES B-T) |
 | PKCS#11 library | empty | See above |
+| Signature text | name only | *Show the certificate details (DN)*; a request can override it with `signerDetails` |
 | Start with Windows | on | Enabled on the first start of the installed app (`HKCU\…\CurrentVersion\Run`) |
 
 - Settings: `%APPDATA%\PdfSignTool\settings.properties`

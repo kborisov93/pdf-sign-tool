@@ -29,6 +29,8 @@ class SigningCoordinator(
     private val store: SignRequestStore,
     private val signingService: PdfSigningService,
     private val interaction: UserInteraction,
+    /** The app's default for requests that do not choose [SignatureOptions.signerDetails]. */
+    private val signerDetails: () -> SignerDetails = { SignerDetails.NAME },
     private val timestampUrl: () -> String?,
 ) {
     private val log = LoggerFactory.getLogger(SigningCoordinator::class.java)
@@ -89,7 +91,8 @@ class SigningCoordinator(
 
                 log.info("Signing request {} as '{}'", request.id, credential.certificate.subjectX500Principal.name)
                 try {
-                    val signed = signingService.sign(request, credential, timestampUrl())
+                    val details = request.options.signerDetails ?: signerDetails()
+                    val signed = signingService.sign(request, credential, timestampUrl(), details)
                     request.complete(signed, SignerInfo.of(credential.certificate))
                     log.info("Request {} signed", request.id)
                     return

@@ -24,7 +24,9 @@ class PdfSignToolApp(private val instanceLock: SingleInstanceLock) {
     private val settingsStore = SettingsStore(AppPaths.settingsFile)
     private val requestStore = SignRequestStore()
     private val interaction = SwingUserInteraction { settingsStore.current }
-    private val coordinator = SigningCoordinator(requestStore, PdfSigningService(), interaction) { settingsStore.current.timestampUrl }
+    private val coordinator = SigningCoordinator(requestStore, PdfSigningService(), interaction, { settingsStore.current.signerDetails }) {
+        settingsStore.current.timestampUrl
+    }
     private val server = ApiServer(requestStore, coordinator::submit) { settingsStore.current }
     private val janitor = Executors.newSingleThreadScheduledExecutor { Thread(it, "request-janitor").apply { isDaemon = true } }
     private lateinit var tray: TrayController

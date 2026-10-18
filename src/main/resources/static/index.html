@@ -63,8 +63,8 @@
         <label>Page <input name="page" type="number" min="1" value="1" required></label>
         <label>x <input name="x" type="number" step="any" value="36" required></label>
         <label>y <input name="y" type="number" step="any" value="36" required></label>
-        <label>Width <input name="width" type="number" step="any" min="4" value="200" required></label>
-        <label>Height <input name="height" type="number" step="any" min="4" value="60" required></label>
+        <label>Width <input name="width" type="number" step="any" min="4" value="240" required></label>
+        <label>Height <input name="height" type="number" step="any" min="4" value="70" required></label>
         <label>Origin
           <select name="origin">
             <option value="bottom-left">bottom-left (PDF)</option>
@@ -77,6 +77,13 @@
     <div class="grid two">
       <label>Reason <input name="reason" placeholder="I approve this document"></label>
       <label>Location <input name="location" placeholder="Sofia"></label>
+      <label>Signer details
+        <select name="signerDetails">
+          <option value="">App default</option>
+          <option value="name">Name only</option>
+          <option value="dn">Full DN</option>
+        </select>
+      </label>
     </div>
     <button id="submit" type="submit">Request signature</button>
   </form>

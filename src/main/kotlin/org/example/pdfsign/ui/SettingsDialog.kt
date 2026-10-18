@@ -7,6 +7,7 @@ import org.example.pdfsign.AppInfo
 import org.example.pdfsign.settings.Settings
 import org.example.pdfsign.settings.SettingsStore
 import org.example.pdfsign.settings.WindowsStartup
+import org.example.pdfsign.signing.SignerDetails
 import java.awt.BorderLayout
 import java.awt.Frame
 import java.awt.GridBagConstraints
@@ -43,6 +44,7 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
     private val originsArea = JTextArea(settings.allowedOrigins.joinToString("\n"), 4, 40)
     private val timestampField = JTextField(settings.timestampUrl, 40)
     private val pkcs11Field = JTextField(settings.pkcs11Library, 32)
+    private val dnBox = JCheckBox("Show the certificate details (DN)", settings.signerDetails == SignerDetails.DN).apply { isOpaque = false }
     private val startupBox = JCheckBox("Start ${AppInfo.NAME} when I sign in to Windows")
     private val error = Notice(boxed = false)
 
@@ -79,6 +81,10 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
                         add(browse, BorderLayout.EAST)
                     },
                     "Optional: only for smart cards that do not appear in the Windows certificate store.",
+                ),
+                Field(
+                    "Signature text", dnBox,
+                    "Adds email, organisation and personal number from the certificate. A request can override it with signerDetails.",
                 ),
             )
             if (WindowsStartup.isSupported) {
@@ -157,6 +163,7 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
                 allowedOrigins = Settings.parseOrigins(originsArea.text),
                 timestampUrl = timestampUrl,
                 pkcs11Library = pkcs11Library,
+                signerDetails = if (dnBox.isSelected) SignerDetails.DN else SignerDetails.NAME,
             )
         )
         if (WindowsStartup.isSupported && startupBox.isSelected != WindowsStartup.isEnabled()) {

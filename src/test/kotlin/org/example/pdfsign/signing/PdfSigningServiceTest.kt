@@ -2,13 +2,18 @@ package org.example.pdfsign.signing
 
 import com.itextpdf.forms.PdfAcroForm
 import com.itextpdf.kernel.pdf.PdfDocument
+import com.itextpdf.kernel.pdf.PdfName
 import com.itextpdf.kernel.pdf.PdfReader
+import com.itextpdf.kernel.pdf.PdfStream
+import com.itextpdf.kernel.pdf.xobject.PdfFormXObject
 import com.itextpdf.signatures.SignatureUtil
 import org.example.pdfsign.TestPki
 import java.io.ByteArrayInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PdfSigningServiceTest {
@@ -74,6 +79,32 @@ class PdfSigningServiceTest {
     }
 
     @Test
+    fun `draws the built-in logo at the left of the signature`() {
+        val signed = service.sign(request(TestPki.samplePdf(1), SignatureOptions(1, PdfRect(36f, 36f, 240f, 70f))), TestPki.credential())
+        read(signed) { pdf ->
+            val signatures = SignatureUtil(pdf)
+            val name = signatures.signatureNames.single()
+            assertTrue(signatures.readSignatureData(name).verifySignatureIntegrityAndAuthenticity())
+
+            val logo = assertNotNull(logoXObject(pdf, name), "logo form XObject in the appearance")
+            assertEquals(202.24f / 144.87f, logo.width / logo.height, 0.01f) // the viewBox of logo.svg
+        }
+    }
+
+    @Test
+    fun `without a logo the appearance is text only`() {
+        val textOnly = PdfSigningService(logoSvg = null)
+        val signed = textOnly.sign(request(TestPki.samplePdf(1), SignatureOptions(1, PdfRect(36f, 36f, 240f, 70f))), TestPki.credential())
+        read(signed) { pdf -> assertNull(logoXObject(pdf, SignatureUtil(pdf).signatureNames.single())) }
+    }
+
+    @Test
+    fun `the built-in logo resources exist`() {
+        assertNotNull(PdfSigningService.defaultLogo())
+        assertNotNull(PdfSigningService.defaultLogo("logo-mark.svg"))
+    }
+
+    @Test
     fun `inspection rejects invalid requests`() {
         val pdf = TestPki.samplePdf(2)
         assertFailsWith<InvalidSignRequestException> { PdfInspector.inspect(pdf, SignatureOptions(3, PdfRect(0f, 0f, 100f, 50f))) }
@@ -91,6 +122,22 @@ class PdfSigningServiceTest {
         documentInfo = PdfInspector.inspect(document, options),
         options = options,
     )
+
+    /** The form XObject the SVG logo was converted to (iText marks it "% svg root"), nested in the field's appearance. */
+    private fun logoXObject(pdf: PdfDocument, fieldName: String): PdfFormXObject? {
+        val widget = PdfAcroForm.getAcroForm(pdf, false)!!.getField(fieldName)!!.widgets.single()
+        val seen = mutableSetOf<PdfStream>()
+        fun search(form: PdfFormXObject): PdfFormXObject? {
+            if (!seen.add(form.pdfObject)) return null
+            val xObjects = form.resources.getResource(PdfName.XObject) ?: return null
+            return xObjects.keySet().asSequence()
+                .mapNotNull { xObjects.getAsStream(it) }
+                .filter { PdfName.Form == it.getAsName(PdfName.Subtype) }
+                .map { PdfFormXObject(it) }
+                .firstNotNullOfOrNull { child -> child.takeIf { "% svg root" in String(it.pdfObject.bytes) } ?: search(child) }
+        }
+        return search(PdfFormXObject(widget.normalAppearanceObject as PdfStream))
+    }
 
     private fun read(document: ByteArray, block: (PdfDocument) -> Unit) =
         PdfDocument(PdfReader(ByteArrayInputStream(document))).use(block)

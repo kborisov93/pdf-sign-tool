@@ -19,11 +19,16 @@ import java.util.Date
 
 /** Software keys and sample documents, so the signing flow can be tested without a smart card. */
 object TestPki {
-    fun credential(commonName: String = "Иван Петров Тестов", keyAlgorithm: String = "RSA"): SigningCredential {
+    /** [subject] is in BouncyCastle's order: the first attribute is stored first (smart card certificates start with C). */
+    fun credential(
+        commonName: String = "Иван Петров Тестов",
+        keyAlgorithm: String = "RSA",
+        subject: String = "CN=$commonName, O=PDF Sign Tool Tests, C=BG",
+    ): SigningCredential {
         val keyPair = KeyPairGenerator.getInstance(keyAlgorithm)
             .apply { initialize(if (keyAlgorithm == "EC") 256 else 2048) }
             .generateKeyPair()
-        val name = X500Name("CN=$commonName, O=PDF Sign Tool Tests, C=BG")
+        val name = X500Name(subject)
         val now = System.currentTimeMillis()
         val builder = JcaX509v3CertificateBuilder(
             name, BigInteger.valueOf(now), Date(now - 3_600_000), Date(now + 86_400_000), name, keyPair.public,

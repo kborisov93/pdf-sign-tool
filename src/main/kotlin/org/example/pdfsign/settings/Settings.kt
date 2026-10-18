@@ -1,6 +1,7 @@
 package org.example.pdfsign.settings
 
 import org.example.pdfsign.AppInfo
+import org.example.pdfsign.signing.SignerDetails
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,6 +17,8 @@ data class Settings(
     val timestampUrl: String = "",
     /** PKCS#11 driver of a smart card that is not visible in the Windows certificate store; blank to disable. */
     val pkcs11Library: String = "",
+    /** What the visible signature shows about the signer, unless a request asks for something else. */
+    val signerDetails: SignerDetails = SignerDetails.NAME,
 ) {
     fun isOriginAllowed(origin: String): Boolean = allowedOrigins.any { originMatches(it, origin) }
 
@@ -24,6 +27,7 @@ data class Settings(
         setProperty("allowedOrigins", allowedOrigins.joinToString(","))
         setProperty("timestampUrl", timestampUrl)
         setProperty("pkcs11Library", pkcs11Library)
+        setProperty("signerDetails", signerDetails.key)
     }
 
     companion object {
@@ -34,6 +38,7 @@ data class Settings(
             allowedOrigins = properties.getProperty("allowedOrigins")?.let(::parseOrigins) ?: listOf("*"),
             timestampUrl = properties.getProperty("timestampUrl")?.trim().orEmpty(),
             pkcs11Library = properties.getProperty("pkcs11Library")?.trim().orEmpty(),
+            signerDetails = properties.getProperty("signerDetails")?.let(SignerDetails::parse) ?: SignerDetails.NAME,
         )
 
         /** Splits a comma- or line-separated list of origins. */

@@ -1,5 +1,7 @@
 package org.example.pdfsign.settings
 
+import org.example.pdfsign.signing.SignerDetails
+import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,8 +25,9 @@ class SettingsTest {
 
     @Test
     fun `properties round trip`() {
-        val settings = Settings(4321, listOf("https://a.example", "https://b.example"), "http://tsa.example", "C:\\x\\p11.dll")
+        val settings = Settings(4321, listOf("https://a.example", "https://b.example"), "http://tsa.example", "C:\\x\\p11.dll", SignerDetails.DN)
         assertEquals(settings, Settings.fromProperties(settings.toProperties()))
+        assertEquals(SignerDetails.NAME, Settings.fromProperties(Properties()).signerDetails)
         assertEquals(listOf("https://a.example", "https://b.example"), Settings.parseOrigins(" https://a.example/ \n https://b.example,"))
     }
 }

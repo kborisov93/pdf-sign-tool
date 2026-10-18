@@ -28,7 +28,25 @@ data class SignatureOptions(
     val location: String? = null,
     val contactInfo: String? = null,
     val fieldName: String? = null,
+    /** What the visible signature says about the signer; null means the app's setting. */
+    val signerDetails: SignerDetails? = null,
 )
+
+/** How much of the signing certificate's subject the visible signature shows. */
+enum class SignerDetails {
+    /** "Digitally signed by <common name>". */
+    NAME,
+
+    /** The name plus the certificate's full distinguished name (email, organisation, personal number, ...). */
+    DN;
+
+    /** The value used in the API and the settings file. */
+    val key: String get() = name.lowercase()
+
+    companion object {
+        fun parse(value: String): SignerDetails? = entries.firstOrNull { it.key == value.trim().lowercase() }
+    }
+}
 
 /** What [PdfInspector] found out about the uploaded document. */
 data class DocumentInfo(
