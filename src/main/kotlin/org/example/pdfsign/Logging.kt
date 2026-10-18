@@ -4,14 +4,15 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * Configures slf4j-simple to write to %LOCALAPPDATA%\PdfSignTool\logs. Must run before the first logger is created.
- * Every -Dorg.slf4j.simpleLogger.* option given on the command line takes precedence.
+ * Configures slf4j-simple to write to %LOCALAPPDATA%\PdfSignTool\logs, or to standard error if [init] is told not to
+ * use the file. Must run before the first logger is created. Every -Dorg.slf4j.simpleLogger.* option given on the
+ * command line takes precedence.
  */
 object Logging {
     private const val PREFIX = "org.slf4j.simpleLogger."
 
-    fun init() {
-        if (System.getProperty(PREFIX + "logFile") == null) {
+    fun init(toFile: Boolean = true) {
+        if (toFile && System.getProperty(PREFIX + "logFile") == null) {
             runCatching {
                 Files.createDirectories(AppPaths.logDir)
                 // slf4j-simple truncates its file on start, so keep the previous session's log next to it.

@@ -8,7 +8,9 @@ import javax.swing.JOptionPane
 import kotlin.system.exitProcess
 
 fun main() {
-    Logging.init()
+    // Take the lock before logging starts: a second instance must not rotate or truncate the running instance's log.
+    val instanceLock = SingleInstanceLock.tryAcquire(AppPaths.lockFile)
+    Logging.init(toFile = instanceLock != null)
     val log = LoggerFactory.getLogger("org.example.pdfsign.Main")
     Thread.setDefaultUncaughtExceptionHandler { thread, e -> log.error("Uncaught exception in thread {}", thread.name, e) }
     log.info("Starting {} {} on Java {}", AppInfo.NAME, AppInfo.version, Runtime.version())
@@ -22,7 +24,6 @@ fun main() {
         exitProcess(1)
     }
 
-    val instanceLock = SingleInstanceLock.tryAcquire(AppPaths.lockFile)
     if (instanceLock == null) {
         log.info("Another instance is already running")
         JOptionPane.showMessageDialog(
