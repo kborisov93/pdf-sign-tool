@@ -23,7 +23,7 @@ ships inside the installer.
 | `gradlew run` | Starts the tray app from the sources |
 | `gradlew test` | Runs the tests (software keys, no smart card needed) |
 | `gradlew jpackageImage` | `build/jpackage/image/PDF Sign Tool/`: a self-contained app folder that runs without installing |
-| `gradlew jpackageInstaller` | `build/jpackage/installer/PDF Sign Tool-1.0.0.msi` |
+| `gradlew jpackageInstaller` | `build/jpackage/installer/PDF Sign Tool-1.1.0.msi` |
 | `gradlew jpackageInstaller -PinstallerType=exe` | A setup `.exe` instead of the `.msi` |
 | `gradlew jpackageInstaller -PperUserInstall=true` | Installs into `%LOCALAPPDATA%`, without administrator rights |
 

@@ -6,7 +6,7 @@ plugins {
 
 group = "org.example"
 // jpackage requires a purely numeric version (1-3 dot-separated numbers).
-version = "1.0.0"
+version = "1.1.0"
 
 val appName = "PDF Sign Tool"
 val appVendor = "PDF Sign Tool"
