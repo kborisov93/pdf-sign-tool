@@ -80,7 +80,8 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
                         add(pkcs11Field, BorderLayout.CENTER)
                         add(browse, BorderLayout.EAST)
                     },
-                    "Optional: only for smart cards that do not appear in the Windows certificate store.",
+                    if (AppInfo.isWindows) "Optional: only for smart cards that do not appear in the Windows certificate store."
+                    else "The driver of your smart card, e.g. ${if (AppInfo.isMac) "/usr/local/lib/libeTPkcs11.dylib" else "/usr/lib/libeTPkcs11.so"}.",
                 ),
                 Field(
                     "Signature text", dnBox,
@@ -131,10 +132,19 @@ class SettingsDialog private constructor(private val store: SettingsStore) :
 
     private fun choosePkcs11Library() {
         val current = pkcs11Field.text.trim().takeIf { it.isNotEmpty() }?.let(::File)
-        val folder = current?.parentFile ?: System.getenv("WINDIR")?.let { File(it, "System32") }
+        val folder = current?.parentFile ?: when {
+            AppInfo.isWindows -> System.getenv("WINDIR")?.let { File(it, "System32") }
+            AppInfo.isMac -> File("/usr/local/lib")
+            else -> File("/usr/lib")
+        }
+        val extension = when {
+            AppInfo.isWindows -> "dll"
+            AppInfo.isMac -> "dylib"
+            else -> "so"
+        }
         val chooser = SystemFileChooser(folder).apply {
             dialogTitle = "Choose the PKCS#11 library of your smart card"
-            fileFilter = SystemFileChooser.FileNameExtensionFilter("PKCS#11 libraries (*.dll)", "dll")
+            fileFilter = SystemFileChooser.FileNameExtensionFilter("PKCS#11 libraries (*.$extension)", extension)
             if (current != null) selectedFile = current
         }
         if (chooser.showOpenDialog(this) == SystemFileChooser.APPROVE_OPTION) pkcs11Field.text = chooser.selectedFile.absolutePath

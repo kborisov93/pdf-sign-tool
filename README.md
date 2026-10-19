@@ -1,6 +1,7 @@
 # PDF Sign Tool
 
-A Windows tray application that signs PDF documents with the user's smart card on behalf of web applications.
+A tray application for Windows (with builds for macOS and Linux) that signs PDF documents with the user's smart card on
+behalf of web applications.
 
 A web page sends a PDF and the rectangle for the visible signature to a local REST API. PDF Sign Tool shows the
 request (requesting website, document, signature position), the user picks a certificate and enters the smart card
@@ -13,24 +14,26 @@ PIN, and the page polls the request and downloads the signed PDF.
 - The visible signature shows the company logo (vector graphics from
   `src/main/resources/org/example/pdfsign/signing/logo.svg`) next to the signer's name and the date, optionally with
   the certificate's full DN
-- Smart cards through the Windows certificate store (minidriver) or a PKCS#11 driver
-- Windows installer built with jpackage and WiX
+- Smart cards through the Windows certificate store (minidriver) or a PKCS#11 driver (the only way on macOS and Linux)
+- Installers built with jpackage: Windows `.msi` (WiX), macOS `.dmg`, Linux `.deb` and `.rpm`
 
 ## Building
 
 You need a JDK 25 to run Gradle. For packaging, Gradle downloads Eclipse Temurin 25 by itself: its runtime is what
-ships inside the installer.
+ships inside the installer. jpackage builds for the operating system it runs on, so each platform is built on its own
+(the release workflow does all of them).
 
 | Command | Result |
 |---|---|
 | `gradlew run` | Starts the tray app from the sources |
 | `gradlew test` | Runs the tests (software keys, no smart card needed) |
-| `gradlew jpackageImage` | `build/jpackage/image/PDF Sign Tool/`: a self-contained app folder that runs without installing |
-| `gradlew jpackageInstaller` | `build/jpackage/installer/PDF Sign Tool-1.2.0.msi` |
-| `gradlew jpackageInstaller -PinstallerType=exe` | A setup `.exe` instead of the `.msi` |
-| `gradlew jpackageInstaller -PperUserInstall=true` | Installs into `%LOCALAPPDATA%`, without administrator rights |
+| `gradlew jpackageImage` | `build/jpackage/image/PDF Sign Tool/` (`PDF Sign Tool.app` on macOS): a self-contained app that runs without installing |
+| `gradlew jpackageInstaller` | `build/jpackage/installer/`: `PDF Sign Tool-1.2.0.msi`, `PDF Sign Tool-1.2.0.dmg` or `pdf-sign-tool_1.2.0_amd64.deb` |
+| `gradlew jpackageInstaller -PinstallerType=exe` | Windows: a setup `.exe` instead of the `.msi` |
+| `gradlew jpackageInstaller -PperUserInstall=true` | Windows: installs into `%LOCALAPPDATA%`, without administrator rights |
+| `gradlew jpackageInstaller -PinstallerType=rpm` | Linux: an `.rpm` instead of the `.deb` (needs `rpmbuild`; the `.deb` needs `fakeroot`) |
 
-The installer step needs [WiX Toolset](https://wixtoolset.org/) v3, v4 or v5. WiX 5 installs as a .NET tool:
+The Windows installer step needs [WiX Toolset](https://wixtoolset.org/) v3, v4 or v5. WiX 5 installs as a .NET tool:
 
 ```
 dotnet tool install --global wix --version 5.0.2
@@ -42,13 +45,35 @@ The installer adds a Start menu entry and (optionally) a desktop shortcut. Upgra
 `windowsUpgradeUuid` in `build.gradle.kts` stays the same; raise `version` for every release. The bundled runtime only
 contains the modules listed in `runtimeModules`. If a new dependency needs another JDK module, add it there.
 
+### macOS and Linux
+
+- There is no Windows certificate store: set the smart card's PKCS#11 driver in Settings, e.g.
+  `/usr/local/lib/libeTPkcs11.dylib` (macOS) or `/usr/lib/libeTPkcs11.so` (Linux) for SafeNet tokens.
+- "Start when I sign in" exists only on Windows.
+- The app lives in the macOS menu bar and the Linux system tray. GNOME has no tray of its own: it needs the
+  AppIndicator extension, otherwise the app reports that the tray is missing and exits.
+- The signature text uses Arial on macOS and Carlito, Liberation Sans or DejaVu Sans on Linux (whichever is installed
+  first in that order), since Calibri is a Windows font.
+- The macOS app is not signed with an Apple Developer ID or notarized, so Gatekeeper blocks the first start. Open it
+  anyway from System Settings → Privacy & Security, or remove the quarantine flag:
+  `xattr -dr com.apple.quarantine "/Applications/PDF Sign Tool.app"`.
+- The Linux packages install into `/opt/pdf-sign-tool` and add an entry to the application menu.
+
 ### Releases
 
 The GitHub repository mirrors GitLab and builds the release files with GitHub Actions
 (`.github/workflows/release.yml`). Raise `version` in `build.gradle.kts` and push a matching tag, e.g. `v1.2.0`: the
-workflow runs the tests and attaches `PDF-Sign-Tool-1.2.0.msi` and `PDF-Sign-Tool-1.2.0-portable.zip` (the app folder
-from `jpackageImage`) to a GitHub Release. It stops if the tag and `version` differ. Running the workflow by hand
-(Actions → Release → Run workflow) builds the same files as a workflow artifact without releasing them.
+workflow runs the tests on every platform and attaches these files to a GitHub Release:
+
+| Platform | Files |
+|---|---|
+| Windows | `PDF-Sign-Tool-1.2.0.msi`, `PDF-Sign-Tool-1.2.0-windows-portable.zip` (the app folder from `jpackageImage`) |
+| macOS | `PDF-Sign-Tool-1.2.0-macos-arm64.dmg` (Apple silicon), `PDF-Sign-Tool-1.2.0-macos-x64.dmg` (Intel) |
+| Linux | `pdf-sign-tool_1.2.0_amd64.deb`, `pdf-sign-tool-1.2.0-1.x86_64.rpm`, `PDF-Sign-Tool-1.2.0-linux-x64.tar.gz` (the app folder) |
+
+The release is created only after every platform built. It stops if the tag and `version` differ. Running the
+workflow by hand (Actions → Release → Run workflow) builds the same files as workflow artifacts without releasing
+them.
 
 ## Using it from a web application
 

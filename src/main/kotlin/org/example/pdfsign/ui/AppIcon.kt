@@ -95,12 +95,37 @@ object AppIcon {
         val out = ByteArrayOutputStream()
         out.write(directory.array())
         entries.forEach { out.write(it.second) }
-        target.toAbsolutePath().parent?.let { Files.createDirectories(it) }
-        Files.write(target, out.toByteArray())
+        write(target, out.toByteArray())
     }
 
+    /** Writes a macOS .icns with PNG entries from 16 px up to 512 px @2x. */
+    fun writeIcns(target: Path) {
+        // Element types for PNG data (macOS 10.7 and later); the @2x types hold twice the pixels of their point size.
+        val types = listOf(
+            "icp4" to 16, "icp5" to 32, "ic11" to 32, "ic12" to 64, "ic07" to 128,
+            "ic13" to 256, "ic08" to 256, "ic14" to 512, "ic09" to 512, "ic10" to 1024,
+        )
+        val elements = types.map { (type, size) -> type to encodePng(render(size)) }
+        // Big-endian: the "icns" header with the file length, then each element as type, length (with header) and data.
+        val buffer = ByteBuffer.allocate(8 + elements.sumOf { 8 + it.second.size })
+        buffer.put("icns".toByteArray(Charsets.US_ASCII)).putInt(buffer.capacity())
+        for ((type, data) in elements) buffer.put(type.toByteArray(Charsets.US_ASCII)).putInt(8 + data.size).put(data)
+        write(target, buffer.array())
+    }
+
+    /** Writes the icon as a PNG of [size] pixels (the Linux launcher icon). */
+    fun writePng(target: Path, size: Int = 256) = write(target, encodePng(render(size)))
+
+    private fun write(target: Path, data: ByteArray) {
+        target.toAbsolutePath().parent?.let { Files.createDirectories(it) }
+        Files.write(target, data)
+    }
+
+    private fun encodePng(image: BufferedImage): ByteArray =
+        ByteArrayOutputStream().also { ImageIO.write(image, "png", it) }.toByteArray()
+
     private fun encodeIconImage(image: BufferedImage): ByteArray {
-        if (image.width >= 256) return ByteArrayOutputStream().also { ImageIO.write(image, "png", it) }.toByteArray()
+        if (image.width >= 256) return encodePng(image)
 
         // BITMAPINFOHEADER (height counts the XOR and the AND bitmap), bottom-up BGRA pixels, 1-bit AND mask.
         val w = image.width

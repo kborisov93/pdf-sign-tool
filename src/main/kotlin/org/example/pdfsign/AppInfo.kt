@@ -11,6 +11,7 @@ object AppInfo {
     val version: String = AppInfo::class.java.`package`?.implementationVersion ?: "dev"
 
     val isWindows: Boolean = System.getProperty("os.name").startsWith("Windows")
+    val isMac: Boolean = System.getProperty("os.name").startsWith("Mac")
 }
 
 object AppPaths {

@@ -13,6 +13,8 @@ val appVendor = "PDF Sign Tool"
 val appDescription = "Signs PDF documents with a smart card on behalf of web applications"
 // Never change this: Windows Installer uses it to recognise newer versions as upgrades of the same product.
 val windowsUpgradeUuid = "c7fa1663-510b-44aa-b1dd-7d9a0a9199f6"
+val macBundleIdentifier = "org.example.pdfsign"
+val linuxPackageName = "pdf-sign-tool"
 
 val itextVersion = "9.8.0"
 val ktorVersion = "3.6.0"
@@ -67,17 +69,22 @@ tasks.test {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Windows packaging with jpackage
+// Packaging with jpackage, for the operating system the build runs on
 //
-//   gradlew jpackageImage      -> build/jpackage/image/PDF Sign Tool/   (self-contained app folder, no install needed)
-//   gradlew jpackageInstaller  -> build/jpackage/installer/*.msi        (needs WiX v3, v4 or v5 on PATH)
+//   gradlew jpackageImage      -> build/jpackage/image/   self-contained app that runs without installing:
+//                                 "PDF Sign Tool" folder (Windows, Linux) or "PDF Sign Tool.app" (macOS)
+//   gradlew jpackageInstaller  -> build/jpackage/installer/   Windows .msi (needs WiX v3, v4 or v5 on PATH),
+//                                 macOS .dmg, Linux .deb (needs fakeroot)
 //
-// Options: -PinstallerType=exe   build a setup .exe instead of an .msi
-//          -PperUserInstall=true install into %LOCALAPPDATA% without administrator rights
+// Options: -PinstallerType=exe   a setup .exe instead of the .msi; pkg on macOS; rpm on Linux (needs rpmbuild)
+//          -PperUserInstall=true install into %LOCALAPPDATA% without administrator rights (Windows)
 // ---------------------------------------------------------------------------------------------------------------------
 
+val isWindows = System.getProperty("os.name").startsWith("Windows")
+val isMac = System.getProperty("os.name").startsWith("Mac")
+
 // Modules of the bundled Java runtime (found with jdeps, plus the crypto providers loaded via ServiceLoader/reflection).
-val runtimeModules = listOf(
+val runtimeModules = listOfNotNull(
     "java.base",
     "java.desktop",
     "java.instrument",
@@ -90,7 +97,7 @@ val runtimeModules = listOf(
     "jdk.accessibility",
     "jdk.charsets",
     "jdk.crypto.cryptoki", // SunPKCS11: smart cards through a PKCS#11 driver
-    "jdk.crypto.mscapi",   // SunMSCAPI: Windows certificate store (smart cards with a minidriver)
+    "jdk.crypto.mscapi".takeIf { isWindows }, // SunMSCAPI: Windows certificate store (smart cards with a minidriver)
     "jdk.unsupported",
     "jdk.zipfs",
 )
@@ -101,7 +108,7 @@ val jpackageDir = layout.buildDirectory.dir("jpackage")
 val jpackageExecutable = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(25)
     vendor = JvmVendorSpec.ADOPTIUM
-}.map { it.metadata.installationPath.file("bin/jpackage.exe").asFile.absolutePath }
+}.map { it.metadata.installationPath.file(if (isWindows) "bin/jpackage.exe" else "bin/jpackage").asFile.absolutePath }
 
 val jpackageInput by tasks.registering(Sync::class) {
     description = "Collects the application jar and its runtime dependencies for jpackage."
@@ -110,14 +117,16 @@ val jpackageInput by tasks.registering(Sync::class) {
     into(jpackageDir.map { it.dir("input") })
 }
 
+// The icon format jpackage takes on this operating system.
+val appIcon = jpackageDir.map { it.file(if (isWindows) "app.ico" else if (isMac) "app.icns" else "app.png") }
+
 val generateIcon by tasks.registering(JavaExec::class) {
-    description = "Renders the application icon (.ico) used for the launcher and installer."
-    val icon = jpackageDir.map { it.file("app.ico") }
+    description = "Renders the application icon (.ico, .icns or .png) used for the launcher and installer."
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = "org.example.pdfsign.ui.IconExporterKt"
     jvmArgs("-Djava.awt.headless=true")
-    argumentProviders.add(CommandLineArgumentProvider { listOf(icon.get().asFile.absolutePath) })
-    outputs.file(icon)
+    argumentProviders.add(CommandLineArgumentProvider { listOf(appIcon.get().asFile.absolutePath) })
+    outputs.file(appIcon)
 }
 
 // jpackage refuses to overwrite its output, and jlink marks some runtime files read-only: let Gradle delete them.
@@ -126,18 +135,16 @@ val cleanJpackageInstaller by tasks.registering(Delete::class) { delete(jpackage
 
 val jpackageImage by tasks.registering(Exec::class) {
     group = "distribution"
-    description = "Builds a self-contained Windows application image with jpackage."
+    description = "Builds a self-contained application image with jpackage."
     dependsOn(jpackageInput, generateIcon, cleanJpackageImage)
-    onlyIf("jpackage packaging targets Windows") { System.getProperty("os.name").startsWith("Windows") }
 
     val input = jpackageDir.map { it.dir("input") }
     val dest = jpackageDir.map { it.dir("image") }
-    val icon = jpackageDir.map { it.file("app.ico") }
     val mainJar = tasks.jar.flatMap { it.archiveFileName }
     val mainClass = application.mainClass
     val appVersion = version.toString()
     inputs.dir(input)
-    inputs.file(icon)
+    inputs.file(appIcon)
     outputs.dir(dest)
 
     doFirst {
@@ -153,31 +160,32 @@ val jpackageImage by tasks.registering(Exec::class) {
             "--main-class", mainClass.get(),
             "--add-modules", runtimeModules.joinToString(","),
             "--jlink-options", "--strip-native-commands --strip-debug --no-man-pages --no-header-files --compress=zip-6",
-            "--icon", icon.get().asFile.absolutePath,
+            "--icon", appIcon.get().asFile.absolutePath,
             "--java-options", "-Xms16m -Xmx768m -XX:+UseSerialGC --enable-native-access=ALL-UNNAMED",
             "--dest", dest.get().asFile.absolutePath,
         )
+        if (isMac) args("--mac-package-identifier", macBundleIdentifier)
     }
 }
 
 val jpackageInstaller by tasks.registering(Exec::class) {
     group = "distribution"
-    description = "Builds a Windows installer (.msi, or .exe with -PinstallerType=exe) with jpackage and WiX."
+    description = "Builds an installer with jpackage: .msi (or -PinstallerType=exe) on Windows, .dmg on macOS, .deb on Linux."
     dependsOn(jpackageImage, cleanJpackageInstaller)
-    onlyIf("jpackage packaging targets Windows") { System.getProperty("os.name").startsWith("Windows") }
 
-    val installerType = providers.gradleProperty("installerType").getOrElse("msi")
+    val installerType = providers.gradleProperty("installerType").getOrElse(if (isWindows) "msi" else if (isMac) "dmg" else "deb")
     val perUser = providers.gradleProperty("perUserInstall").map { it.toBoolean() }.getOrElse(false)
-    val image = jpackageDir.map { it.dir("image/$appName") }
-    val icon = jpackageDir.map { it.file("app.ico") }
+    val image = jpackageDir.map { it.dir(if (isMac) "image/$appName.app" else "image/$appName") }
     val dest = jpackageDir.map { it.dir("installer") }
     val appVersion = version.toString()
     inputs.dir(image)
     outputs.dir(dest)
 
-    // WiX v4/v5 installed with `dotnet tool install --global wix` lives here; it may not be on the PATH Gradle inherited.
-    val dotnetTools = File(System.getProperty("user.home"), ".dotnet/tools")
-    environment("PATH", listOf(dotnetTools.absolutePath, System.getenv("PATH")).joinToString(File.pathSeparator))
+    if (isWindows) {
+        // WiX v4/v5 installed with `dotnet tool install --global wix` lives here; it may not be on the PATH Gradle inherited.
+        val dotnetTools = File(System.getProperty("user.home"), ".dotnet/tools")
+        environment("PATH", listOf(dotnetTools.absolutePath, System.getenv("PATH")).joinToString(File.pathSeparator))
+    }
 
     doFirst {
         executable = jpackageExecutable.get()
@@ -188,15 +196,22 @@ val jpackageInstaller by tasks.registering(Exec::class) {
             "--vendor", appVendor,
             "--description", appDescription,
             "--app-image", image.get().asFile.absolutePath,
-            "--icon", icon.get().asFile.absolutePath,
-            "--win-upgrade-uuid", windowsUpgradeUuid,
-            "--win-menu",
-            "--win-menu-group", appName,
-            "--win-shortcut",
-            "--win-shortcut-prompt",
-            "--win-dir-chooser",
+            "--icon", appIcon.get().asFile.absolutePath,
             "--dest", dest.get().asFile.absolutePath,
         )
-        if (perUser) args("--win-per-user-install")
+        if (isWindows) {
+            args(
+                "--win-upgrade-uuid", windowsUpgradeUuid,
+                "--win-menu",
+                "--win-menu-group", appName,
+                "--win-shortcut",
+                "--win-shortcut-prompt",
+                "--win-dir-chooser",
+            )
+            if (perUser) args("--win-per-user-install")
+        } else if (!isMac) {
+            // Installs into /opt/pdf-sign-tool, with an entry in the desktop's application menu.
+            args("--linux-package-name", linuxPackageName, "--linux-shortcut", "--linux-menu-group", "Office")
+        }
     }
 }

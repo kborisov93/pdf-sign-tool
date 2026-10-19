@@ -28,7 +28,7 @@ fun main() {
         log.info("Another instance is already running")
         JOptionPane.showMessageDialog(
             null,
-            "${AppInfo.NAME} is already running.\nLook for its icon in the notification area of the taskbar.",
+            "${AppInfo.NAME} is already running.\nLook for its icon in the ${if (AppInfo.isMac) "menu bar" else "notification area of the taskbar"}.",
             AppInfo.NAME,
             JOptionPane.INFORMATION_MESSAGE,
         )

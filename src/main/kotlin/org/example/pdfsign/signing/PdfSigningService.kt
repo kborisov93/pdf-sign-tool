@@ -218,9 +218,25 @@ class PdfSigningService(fontFile: Path? = defaultFontFile(), private val logoSvg
         private const val MAX_FONT_SIZE = 12f
 
         fun defaultFontFile(): Path? {
-            val fonts = Path(System.getenv("WINDIR") ?: "C:\\Windows", "Fonts")
             // Calibri first: narrow, so more text fits, and the font of the signatures made with Adobe Acrobat so far.
-            return listOf("calibri.ttf", "arial.ttf", "segoeui.ttf", "tahoma.ttf").map(fonts::resolve).firstOrNull(Files::isRegularFile)
+            // Carlito has Calibri's metrics and Liberation Sans Arial's; DejaVu Sans is on nearly every Linux system.
+            val names = listOf(
+                "calibri.ttf", "carlito-regular.ttf", "arial.ttf", "liberationsans-regular.ttf",
+                "segoeui.ttf", "tahoma.ttf", "dejavusans.ttf",
+            )
+            val files = fontDirectories().flatMap { dir ->
+                runCatching { Files.walk(dir, 4).use { paths -> paths.filter(Files::isRegularFile).toList() } }.getOrDefault(emptyList())
+            }
+            return names.firstNotNullOfOrNull { name -> files.firstOrNull { it.fileName.toString().equals(name, ignoreCase = true) } }
+        }
+
+        private fun fontDirectories(): List<Path> {
+            val home = System.getProperty("user.home")
+            return when {
+                AppInfo.isWindows -> listOf(Path(System.getenv("WINDIR") ?: "C:\\Windows", "Fonts"))
+                AppInfo.isMac -> listOf(Path("/System/Library/Fonts/Supplemental"), Path("/Library/Fonts"), Path(home, "Library/Fonts"))
+                else -> listOf(Path("/usr/share/fonts"), Path("/usr/local/share/fonts"), Path(home, ".local/share/fonts"))
+            }
         }
 
         /** The company logo built into the application (an SVG resource), or null if the build has none. */
